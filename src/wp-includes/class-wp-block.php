@@ -246,7 +246,7 @@ class WP_Block {
 		$supported_block_attributes = array(
 			'core/paragraph' => array( 'content' ),
 			'core/heading'   => array( 'content' ),
-			'core/image'     => array( 'id', 'url', 'title', 'alt' ),
+			'core/image'     => array( 'id', 'url', 'title', 'alt', 'caption', 'href', 'rel', 'linkClass', 'linkTarget' ),
 			'core/button'    => array( 'url', 'text', 'linkTarget', 'rel' ),
 		);
 
@@ -389,6 +389,16 @@ class WP_Block {
 							}
 							return $amended_button->get_updated_html();
 						}
+						if ( 'core/image' === $this->name && 'caption' === $attribute_name ) {
+							// TODO: Don't use regex.
+							return preg_replace_callback(
+								'/<figcaption[^>]*>.*?<\/figcaption>/is',
+								function () use ( $amended_content ) {
+									return $amended_content->get_updated_html();
+								},
+								$block_content
+							);
+						}
 					} else {
 						$block_reader->seek( 'iterate-selectors' );
 					}
@@ -398,10 +408,15 @@ class WP_Block {
 
 			case 'attribute':
 				$amended_content = new WP_HTML_Tag_Processor( $block_content );
+				$selector        = $block_type->attributes[ $attribute_name ]['selector'];
+				// TODO: build the query from CSS selector when the HTML API supports it.
+				if ( 'figure > a' === $selector ) {
+					$selector = 'a';
+				}
 				if ( ! $amended_content->next_tag(
 					array(
 						// TODO: build the query from CSS selector.
-						'tag_name' => $block_type->attributes[ $attribute_name ]['selector'],
+						'tag_name' => $selector,
 					)
 				) ) {
 					return $block_content;
