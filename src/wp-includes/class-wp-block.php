@@ -333,7 +333,14 @@ class WP_Block {
 		switch ( $block_type->attributes[ $attribute_name ]['source'] ) {
 			case 'html':
 			case 'rich-text':
-				$block_reader = new WP_HTML_Tag_Processor( $block_content );
+				// Use the Interactivity API own method until the HTML API provides an official method for `set_inner_html`.
+				$block_reader = new WP_Interactivity_API_Directives_Processor( $block_content );
+
+				if ( 'core/image' === $this->name && 'caption' === $attribute_name ) {
+					$block_reader->next_tag( 'figcaption' );
+					$block_reader->set_content_between_balanced_tags( $source_value );
+					return $block_reader->get_updated_html();
+				}
 
 				// TODO: Support for CSS selectors whenever they are ready in the HTML API.
 				// In the meantime, support comma-separated selectors by exploding them into an array.
@@ -388,16 +395,6 @@ class WP_Block {
 								$amended_button->set_attribute( $attribute_key, $attribute_value );
 							}
 							return $amended_button->get_updated_html();
-						}
-						if ( 'core/image' === $this->name && 'caption' === $attribute_name ) {
-							// TODO: Don't use regex.
-							return preg_replace_callback(
-								'/<figcaption[^>]*>.*?<\/figcaption>/is',
-								function () use ( $amended_content ) {
-									return $amended_content->get_updated_html();
-								},
-								$block_content
-							);
 						}
 					} else {
 						$block_reader->seek( 'iterate-selectors' );
