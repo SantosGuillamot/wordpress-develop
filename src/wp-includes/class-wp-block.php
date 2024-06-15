@@ -353,7 +353,7 @@ class WP_Block {
 						}
 
 						// Get position of the closer tag.
-						$closer_tag_bookmark = $this->set_bookmark( 'closer_tag' );
+						$this->set_bookmark( 'closer_tag' );
 						$closer_tag_bookmark = $this->bookmarks['closer_tag'];
 
 						// Appends the new content.
