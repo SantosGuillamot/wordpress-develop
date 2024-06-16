@@ -366,8 +366,9 @@ class WP_Block {
 				};
 
 				if ( 'core/image' === $this->name && 'caption' === $attribute_name ) {
-					$block_reader->next_tag( 'figcaption' );
-					$block_reader->set_inner_text( wp_kses_post( $source_value ) );
+					if ( $block_reader->next_tag( 'figcaption' ) ) {
+						$block_reader->set_inner_text( wp_kses_post( $source_value ) );
+					}
 					return $block_reader->get_updated_html();
 				}
 
