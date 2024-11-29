@@ -351,62 +351,26 @@ class WP_Block {
 		switch ( $block_type->attributes[ $attribute_name ]['source'] ) {
 			case 'html':
 			case 'rich-text':
-				$block_reader = new WP_HTML_Tag_Processor( $block_content );
+				$block_reader = PrivateProcessor::create_fragment( $block_content );
 
 				// TODO: Support for CSS selectors whenever they are ready in the HTML API.
 				// In the meantime, support comma-separated selectors by exploding them into an array.
+				// NOTE! This assumes the selectors are element selectors, e.g. "a, button" or "p".
 				$selectors = explode( ',', $block_type->attributes[ $attribute_name ]['selector'] );
+
 				// Add a bookmark to the first tag to be able to iterate over the selectors.
 				$block_reader->next_tag();
 				$block_reader->set_bookmark( 'iterate-selectors' );
 
-				// TODO: This shouldn't be needed when the `set_inner_html` function is ready.
-				// Store the parent tag and its attributes to be able to restore them later in the button.
-				// The button block has a wrapper while the paragraph and heading blocks don't.
-				if ( 'core/button' === $this->name ) {
-					$button_wrapper                 = $block_reader->get_tag();
-					$button_wrapper_attribute_names = $block_reader->get_attribute_names_with_prefix( '' );
-					$button_wrapper_attrs           = array();
-					foreach ( $button_wrapper_attribute_names as $name ) {
-						$button_wrapper_attrs[ $name ] = $block_reader->get_attribute( $name );
-					}
-				}
-
 				foreach ( $selectors as $selector ) {
-					// If the parent tag, or any of its children, matches the selector, replace the HTML.
-					if ( strcasecmp( $block_reader->get_tag(), $selector ) === 0 || $block_reader->next_tag(
-						array(
-							'tag_name' => $selector,
-						)
-					) ) {
+					// If the current or any other tags match the selector, replace the HTML.
+					if (
+						strcasecmp( $block_reader->get_tag(), $selector ) === 0 ||
+						$block_reader->next_tag( $selector )
+					) {
 						$block_reader->release_bookmark( 'iterate-selectors' );
-
-						// TODO: Use `set_inner_html` method whenever it's ready in the HTML API.
-						// Until then, it is hardcoded for the paragraph, heading, and button blocks.
-						// Store the tag and its attributes to be able to restore them later.
-						$selector_attribute_names = $block_reader->get_attribute_names_with_prefix( '' );
-						$selector_attrs           = array();
-						foreach ( $selector_attribute_names as $name ) {
-							$selector_attrs[ $name ] = $block_reader->get_attribute( $name );
-						}
-						$selector_markup = "<$selector>" . wp_kses_post( $source_value ) . "</$selector>";
-						$amended_content = new WP_HTML_Tag_Processor( $selector_markup );
-						$amended_content->next_tag();
-						foreach ( $selector_attrs as $attribute_key => $attribute_value ) {
-							$amended_content->set_attribute( $attribute_key, $attribute_value );
-						}
-						if ( 'core/paragraph' === $this->name || 'core/heading' === $this->name ) {
-							return $amended_content->get_updated_html();
-						}
-						if ( 'core/button' === $this->name ) {
-							$button_markup  = "<$button_wrapper>{$amended_content->get_updated_html()}</$button_wrapper>";
-							$amended_button = new WP_HTML_Tag_Processor( $button_markup );
-							$amended_button->next_tag();
-							foreach ( $button_wrapper_attrs as $attribute_key => $attribute_value ) {
-								$amended_button->set_attribute( $attribute_key, $attribute_value );
-							}
-							return $amended_button->get_updated_html();
-						}
+						$block_reader->set_inner_html( wp_kses_post( $source_value ) );
+						return $block_reader->get_updated_html();
 					} else {
 						$block_reader->seek( 'iterate-selectors' );
 					}
@@ -605,5 +569,131 @@ class WP_Block {
 		}
 
 		return $block_content;
+	}
+}
+
+// phpcs:disable Generic.Files.OneObjectStructurePerFile.MultipleFound
+/**
+ * HTML API Processor subclass implementing experimental set_inner_html.
+ *
+ * DO NOT USE THIS CLASS. Internal usage only.
+ *
+ * @access private
+ */
+class PrivateProcessor extends WP_HTML_Processor {
+
+	/**
+	 * Set the inner HTML of the currrent node.
+	 *
+	 * @todo This method needs to check if the inner HTML can leak out of the current node.
+	 *
+	 * @param string $html The inner HTML to set.
+	 *
+	 * @return bool True if the inner HTML was set, false otherwise.
+	 */
+	public function set_inner_html( string $html ): bool {
+		if ( $this->is_virtual() ) {
+			return false;
+		}
+
+		if ( $this->get_token_type() !== '#tag' ) {
+			return false;
+		}
+
+		if ( $this->is_tag_closer() ) {
+			return false;
+		}
+
+		if ( ! $this->expects_closer() ) {
+			return false;
+		}
+
+		// @todo check if this is necessary
+		/*if (*/
+		/*  'html' !== $this->state->current_token->namespace &&*/
+		/*  $this->state->current_token->has_self_closing_flag*/
+		/*) {*/
+		/*  return false;*/
+		/*}*/
+
+		if ( '' !== $html ) {
+			$fragment_parser = $this->create_fragment_at_current_node( $html );
+			if ( null === $fragment_parser ) {
+				return false;
+			}
+
+			try {
+				$html = $fragment_parser->serialize();
+			} catch ( Exception $e ) {
+				return false;
+			}
+		}
+
+		// @todo apply modifications if there are any???
+		if ( ! $this->set_bookmark( 'SET_INNER_HTML: opener' ) ) {
+			return false;
+		}
+
+		if ( ! $this->proceed_to_matching_closer() ) {
+			$this->seek( 'SET_INNER_HTML: opener' );
+			return false;
+		}
+
+		if ( ! $this->set_bookmark( 'SET_INNER_HTML: closer' ) ) {
+			return false;
+		}
+
+		$inner_html_start  = $this->bookmarks['_SET_INNER_HTML: opener']->start + $this->bookmarks['_SET_INNER_HTML: opener']->length;
+		$inner_html_length = $this->bookmarks['_SET_INNER_HTML: closer']->start - $inner_html_start;
+
+		$this->lexical_updates[] = new WP_HTML_Text_Replacement(
+			$inner_html_start,
+			$inner_html_length,
+			$html
+		);
+
+		$this->seek( 'SET_INNER_HTML: opener' );
+		$this->release_bookmark( 'SET_INNER_HTML: opener' );
+		$this->release_bookmark( 'SET_INNER_HTML: closer' );
+
+		// @todo check for whether that html will make a mess!
+		// Will it break out of tags?
+		return true;
+	}
+
+	/**
+	 * @todo check for self-closing foreign content tags
+	 * @todo document
+	 */
+	public function proceed_to_matching_closer(): bool {
+		$tag_name = $this->get_tag();
+
+		if ( null === $tag_name ) {
+			return false;
+		}
+
+		if ( $this->is_tag_closer() ) {
+			return false;
+		}
+
+		if ( ! $this->expects_closer() ) {
+			return false;
+		}
+
+		$breadcrumbs = $this->get_breadcrumbs();
+		array_pop( $breadcrumbs );
+
+		// @todo Can't use these queries together
+		while ( $this->next_tag(
+			array(
+				'tag_name'    => $this->get_tag(),
+				'tag_closers' => 'visit',
+			)
+		) ) {
+			if ( $this->get_breadcrumbs() === $breadcrumbs ) {
+				return true;
+			}
+		}
+		return false;
 	}
 }
