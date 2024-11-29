@@ -537,6 +537,10 @@ class WP_HTML_Tag_Processor {
 	 */
 	protected $compat_mode = self::NO_QUIRKS_MODE;
 
+	public function is_quirks_mode() {
+		return self::QUIRKS_MODE === $this->compat_mode;
+	}
+
 	/**
 	 * Indicates whether the parser is inside foreign content,
 	 * e.g. inside an SVG or MathML element.

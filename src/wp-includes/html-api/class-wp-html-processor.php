@@ -455,7 +455,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	 * @param string $html Input HTML fragment to process.
 	 * @return static|null The created processor if successful, otherwise null.
 	 */
-	private function create_fragment_at_current_node( string $html ) {
+	protected function create_fragment_at_current_node( string $html ) {
 		if ( $this->get_token_type() !== '#tag' || $this->is_tag_closer() ) {
 			_doing_it_wrong(
 				__METHOD__,
@@ -633,6 +633,44 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	 */
 	public function get_unsupported_exception() {
 		return $this->unsupported_exception;
+	}
+
+	/**
+	 * Use a selector to advance.
+	 *
+	 * @param string $selectors
+	 * @return Generator<void>|null
+	 */
+	public function select_all( string $selectors ): ?Generator {
+		$select = WP_CSS_Selector_List::from_selectors( $selectors );
+		if ( null === $select ) {
+			return null;
+		}
+
+		while ( $this->next_tag() ) {
+			if ( $select->matches( $this ) ) {
+				yield;
+			}
+		}
+	}
+
+	/**
+	 * Select the next matching element.
+	 *
+	 * If iterating through matching elements, use `select_all` instead.
+	 *
+	 * @param string $selectors
+	 * @return bool|null
+	 */
+	public function select( string $selectors ) {
+		$selection = $this->select_all( $selectors );
+		if ( null === $selection ) {
+			return null;
+		}
+		foreach ( $selection as $_ ) {
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -862,7 +900,7 @@ class WP_HTML_Processor extends WP_HTML_Tag_Processor {
 	 *
 	 * @return bool Whether the current token is virtual.
 	 */
-	private function is_virtual(): bool {
+	protected function is_virtual(): bool {
 		return (
 			isset( $this->current_element->provenance ) &&
 			'virtual' === $this->current_element->provenance
