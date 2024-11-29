@@ -347,49 +347,21 @@ class WP_Block {
 			return $block_content;
 		}
 
+		$block_reader = PrivateProcessor::create_fragment( $block_content );
+		$selector     = $block_type->attributes[ $attribute_name ]['selector'];
 		// Depending on the attribute source, the processing will be different.
 		switch ( $block_type->attributes[ $attribute_name ]['source'] ) {
 			case 'html':
 			case 'rich-text':
-				$block_reader = PrivateProcessor::create_fragment( $block_content );
-
-				// TODO: Support for CSS selectors whenever they are ready in the HTML API.
-				// In the meantime, support comma-separated selectors by exploding them into an array.
-				// NOTE! This assumes the selectors are element selectors, e.g. "a, button" or "p".
-				$selectors = explode( ',', $block_type->attributes[ $attribute_name ]['selector'] );
-
-				// Add a bookmark to the first tag to be able to iterate over the selectors.
-				$block_reader->next_tag();
-				$block_reader->set_bookmark( 'iterate-selectors' );
-
-				foreach ( $selectors as $selector ) {
-					// If the current or any other tags match the selector, replace the HTML.
-					if (
-						strcasecmp( $block_reader->get_tag(), $selector ) === 0 ||
-						$block_reader->next_tag( $selector )
-					) {
-						$block_reader->release_bookmark( 'iterate-selectors' );
-						$block_reader->set_inner_html( wp_kses_post( $source_value ) );
-						return $block_reader->get_updated_html();
-					} else {
-						$block_reader->seek( 'iterate-selectors' );
-					}
+				if ( $block_reader->select( $selector ) ) {
+					$block_reader->set_inner_html( wp_kses_post( $source_value ) );
 				}
-				$block_reader->release_bookmark( 'iterate-selectors' );
-				return $block_content;
-
+				return $block_reader->get_updated_html();
 			case 'attribute':
-				$amended_content = new WP_HTML_Tag_Processor( $block_content );
-				if ( ! $amended_content->next_tag(
-					array(
-						// TODO: build the query from CSS selector.
-						'tag_name' => $block_type->attributes[ $attribute_name ]['selector'],
-					)
-				) ) {
-					return $block_content;
+				if ( $block_reader->select( $selector ) ) {
+					$block_reader->set_attribute( $block_type->attributes[ $attribute_name ]['attribute'], $source_value );
 				}
-				$amended_content->set_attribute( $block_type->attributes[ $attribute_name ]['attribute'], $source_value );
-				return $amended_content->get_updated_html();
+				return $block_reader->get_updated_html();
 
 			default:
 				return $block_content;
